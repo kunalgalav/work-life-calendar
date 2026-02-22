@@ -31,6 +31,7 @@ from calendar_service import (
     modify_event,
     cancel_event,
     check_conflicts,
+    find_available_slots,
     get_weekly_schedule,
 )
 from image_generator import generate_weekly_calendar_images
@@ -128,6 +129,9 @@ def _handle_text(message: dict, chat_id: str):
     elif intent == "calendar_view":
         _handle_calendar_view(chat_id)
 
+    elif intent == "propose_time":
+        _handle_propose_time(parsed, chat_id)
+
     elif intent == "unknown":
         reply = parsed.get("reply_text", "Sorry, I didn't understand that. Could you rephrase?")
         send_message(reply, chat_id)
@@ -190,7 +194,21 @@ def _handle_create_intent(parsed: dict, chat_id: str):
     if conflicts:
         warning = format_conflict_warning(conflicts)
         reply = parsed.get("reply_text", "")
-        send_message(f"{reply}\n\n{warning}", chat_id)
+
+        # Auto-suggest alternative free slots on the same day
+        duration = 60  # default
+        if event.get("start_time") and event.get("end_time"):
+            try:
+                s = datetime.strptime(event["start_time"], "%H:%M")
+                e = datetime.strptime(event["end_time"], "%H:%M")
+                duration = max(int((e - s).total_seconds() / 60), 30)
+            except ValueError:
+                pass
+
+        slots = find_available_slots(event.get("date", ""), duration_minutes=duration)
+        suggestion = _format_slot_suggestions(slots, duration)
+
+        send_message(f"{reply}\n\n{warning}\n\n{suggestion}", chat_id)
     else:
         reply = parsed.get("reply_text", "Shall I add this to your personal calendar?")
         send_message(reply, chat_id)
@@ -339,6 +357,95 @@ def _handle_calendar_view(chat_id: str):
     except Exception as e:
         logger.error(f"Error generating calendar view: {e}", exc_info=True)
         send_message("Sorry, I had trouble generating the calendar view. Please try again.", chat_id)
+
+
+def _handle_propose_time(parsed: dict, chat_id: str):
+    """
+    Handle a 'propose_time' intent — find free slots across both calendars.
+
+    Looks at the requested date and duration, scans both work and personal
+    calendars, and returns a formatted list of available time windows.
+    """
+    event = parsed.get("event") or {}
+    date = event.get("date", datetime.now().strftime("%Y-%m-%d"))
+    duration = event.get("duration_minutes") or 60
+
+    # Ensure duration is an int
+    try:
+        duration = int(duration)
+    except (TypeError, ValueError):
+        duration = 60
+
+    try:
+        slots = find_available_slots(date, duration_minutes=duration)
+
+        if not slots:
+            try:
+                dt = datetime.strptime(date, "%Y-%m-%d")
+                date_display = dt.strftime("%A %d %B")
+            except ValueError:
+                date_display = date
+
+            send_message(
+                f"No free slots of {duration} minutes or more on {date_display}. "
+                "Want me to check another day?",
+                chat_id,
+            )
+            return
+
+        suggestion = _format_slot_suggestions(slots, duration)
+
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+            date_display = dt.strftime("%A %d %B")
+        except ValueError:
+            date_display = date
+
+        title = event.get("title")
+        if title:
+            header = f"Here are the free slots for <b>{title}</b> on {date_display}:"
+        else:
+            header = f"Here are the free slots on <b>{date_display}</b> ({duration}-min windows):"
+
+        send_message(f"{header}\n\n{suggestion}", chat_id)
+
+    except Exception as e:
+        logger.error(f"Error finding available slots: {e}", exc_info=True)
+        send_message("Sorry, I had trouble checking availability. Please try again.", chat_id)
+
+
+def _format_slot_suggestions(slots: list[dict], duration_minutes: int = 60) -> str:
+    """
+    Format available time slots into a Telegram-friendly message.
+
+    Shows up to 5 free windows with their start-end times.
+    """
+    if not slots:
+        return "No free slots available on this day."
+
+    lines = ["<b>Available times:</b>"]
+    for slot in slots[:5]:  # Show at most 5 suggestions
+        start = slot["start"]
+        end = slot["end"]
+
+        # Calculate the slot duration for display
+        try:
+            s = datetime.strptime(start, "%H:%M")
+            e = datetime.strptime(end, "%H:%M")
+            mins = int((e - s).total_seconds() / 60)
+            if mins >= 120:
+                dur_str = f"{mins // 60}h {mins % 60}min" if mins % 60 else f"{mins // 60}h"
+            else:
+                dur_str = f"{mins}min"
+            lines.append(f"  ✅ {start} – {end} ({dur_str} free)")
+        except ValueError:
+            lines.append(f"  ✅ {start} – {end}")
+
+    if len(slots) > 5:
+        lines.append(f"  ...and {len(slots) - 5} more slots")
+
+    lines.append("\nWant me to book one of these?")
+    return "\n".join(lines)
 
 
 def _format_event_line(ev: dict) -> str:

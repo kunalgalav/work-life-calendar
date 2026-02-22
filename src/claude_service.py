@@ -51,14 +51,15 @@ IMPORTANT RULES:
 You MUST respond with valid JSON matching this exact schema (no markdown, no backticks, just raw JSON):
 
 {{
-  "intent": "create" | "modify" | "cancel" | "query" | "calendar_view" | "confirm" | "unknown",
+  "intent": "create" | "modify" | "cancel" | "query" | "calendar_view" | "propose_time" | "confirm" | "unknown",
   "event": {{
     "title": "string",
     "date": "YYYY-MM-DD",
     "start_time": "HH:MM",
     "end_time": "HH:MM",
     "location": "string or null",
-    "description": "string or null"
+    "description": "string or null",
+    "duration_minutes": "integer or null"
   }},
   "original_event_title": "string or null",
   "confidence": "high" | "medium" | "low",
@@ -74,6 +75,13 @@ For "query" intents (e.g. "what's on today?"), set date to the start date and en
 For "calendar_view" intents — use this when the user asks for a visual overview of the week, such as:
 "show me the week", "calendar view", "weekly summary", "what does my week look like", "week overview", "show my calendar"
 Set the event object to null for calendar_view — the image generator handles the data fetching.
+
+For "propose_time" intents — use this when the user asks for available times or free slots, such as:
+"when am I free on Monday?", "find me a time for a 30 min meeting tomorrow",
+"suggest a time for lunch on Friday", "when can I schedule a 2-hour block this week?",
+"propose a new time", "what times are available?"
+Set the date field to the requested date, and set duration_minutes to the desired slot length (default 60 if not specified).
+If the user mentions a specific day of the week (e.g. "Thursday"), resolve it to the actual YYYY-MM-DD date.
 """
 
 

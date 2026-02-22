@@ -380,6 +380,89 @@ def check_conflicts(date: str, start_time: str, end_time: str) -> list[dict]:
     return conflicts
 
 
+def find_available_slots(
+    date: str,
+    duration_minutes: int = 60,
+    earliest: str = "08:00",
+    latest: str = "20:00",
+) -> list[dict]:
+    """
+    Find free time slots on a given date across BOTH calendars.
+
+    Scans the day between 'earliest' and 'latest' and returns gaps where
+    no work or personal events exist.  Useful for proposing alternative
+    times when a conflict is detected, or when the user asks "when am I
+    free?".
+
+    Args:
+        date:             Date in YYYY-MM-DD format.
+        duration_minutes: Minimum slot length in minutes (default 60).
+        earliest:         Earliest start time in HH:MM (default 08:00).
+        latest:           Latest end time in HH:MM (default 20:00).
+
+    Returns:
+        List of dicts: [{"start": "HH:MM", "end": "HH:MM"}, ...]
+        sorted chronologically.  Empty list if no slots are available.
+    """
+    events = query_events(date, date, calendar="both")
+
+    day_start = datetime.strptime(f"{date} {earliest}", "%Y-%m-%d %H:%M")
+    day_end = datetime.strptime(f"{date} {latest}", "%Y-%m-%d %H:%M")
+
+    # Collect busy intervals (as naive datetime pairs)
+    busy = []
+    for ev in events:
+        ev_start_str = ev.get("start", {}).get("dateTime")
+        ev_end_str = ev.get("end", {}).get("dateTime")
+        if not ev_start_str or not ev_end_str:
+            continue
+
+        ev_start = datetime.fromisoformat(ev_start_str).replace(tzinfo=None)
+        ev_end = datetime.fromisoformat(ev_end_str).replace(tzinfo=None)
+
+        # Clamp to the window we care about
+        ev_start = max(ev_start, day_start)
+        ev_end = min(ev_end, day_end)
+
+        if ev_start < ev_end:
+            busy.append((ev_start, ev_end))
+
+    # Sort and merge overlapping intervals
+    busy.sort(key=lambda x: x[0])
+    merged = []
+    for start, end in busy:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    # Walk through the day and find gaps >= duration_minutes
+    slots = []
+    cursor = day_start
+    min_delta = timedelta(minutes=duration_minutes)
+
+    for busy_start, busy_end in merged:
+        if busy_start - cursor >= min_delta:
+            slots.append({
+                "start": cursor.strftime("%H:%M"),
+                "end": busy_start.strftime("%H:%M"),
+            })
+        cursor = max(cursor, busy_end)
+
+    # Check the gap after the last event
+    if day_end - cursor >= min_delta:
+        slots.append({
+            "start": cursor.strftime("%H:%M"),
+            "end": day_end.strftime("%H:%M"),
+        })
+
+    logger.info(
+        f"Found {len(slots)} available slot(s) on {date} "
+        f"(duration >= {duration_minutes}min, {earliest}-{latest})"
+    )
+    return slots
+
+
 def get_daily_schedule(date: str) -> dict:
     """
     Get the full day's schedule, split by work vs personal.
