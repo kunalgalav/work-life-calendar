@@ -51,7 +51,7 @@ IMPORTANT RULES:
 You MUST respond with valid JSON matching this exact schema (no markdown, no backticks, just raw JSON):
 
 {{
-  "intent": "create" | "modify" | "cancel" | "query" | "confirm" | "unknown",
+  "intent": "create" | "modify" | "cancel" | "query" | "calendar_view" | "confirm" | "unknown",
   "event": {{
     "title": "string",
     "date": "YYYY-MM-DD",
@@ -69,7 +69,11 @@ You MUST respond with valid JSON matching this exact schema (no markdown, no bac
 If the user says "yes", "yeah", "go ahead", "do it", "confirm", etc., return intent "confirm".
 If you can't understand the message, return intent "unknown" with a helpful reply_text.
 
-For "query" intents (e.g. "what's on this week?"), set date to the start date and end_time to the end date in YYYY-MM-DD format.
+For "query" intents (e.g. "what's on today?"), set date to the start date and end_time to the end date in YYYY-MM-DD format.
+
+For "calendar_view" intents — use this when the user asks for a visual overview of the week, such as:
+"show me the week", "calendar view", "weekly summary", "what does my week look like", "week overview", "show my calendar"
+Set the event object to null for calendar_view — the image generator handles the data fetching.
 """
 
 

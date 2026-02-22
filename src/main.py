@@ -31,9 +31,12 @@ from calendar_service import (
     modify_event,
     cancel_event,
     check_conflicts,
+    get_weekly_schedule,
 )
+from image_generator import generate_weekly_calendar_image
 from telegram_service import (
     send_message,
+    send_photo,
     download_photo,
     format_conflict_warning,
 )
@@ -121,6 +124,9 @@ def _handle_text(message: dict, chat_id: str):
 
     elif intent == "query":
         _handle_query_intent(parsed, chat_id)
+
+    elif intent == "calendar_view":
+        _handle_calendar_view(chat_id)
 
     elif intent == "unknown":
         reply = parsed.get("reply_text", "Sorry, I didn't understand that. Could you rephrase?")
@@ -310,6 +316,21 @@ def _handle_query_intent(parsed: dict, chat_id: str):
     except Exception as e:
         logger.error(f"Error querying events: {e}", exc_info=True)
         send_message("Sorry, I had trouble checking the calendar. Please try again.", chat_id)
+
+
+def _handle_calendar_view(chat_id: str):
+    """
+    Handle a 'calendar_view' intent — generate and send the weekly calendar image.
+
+    Fetches the current week (Mon-Fri) and renders a Google Calendar-like grid view.
+    """
+    try:
+        weekly = get_weekly_schedule()
+        image_bytes = generate_weekly_calendar_image(weekly)
+        send_photo(image_bytes, caption="Here's your week at a glance:", chat_id=chat_id)
+    except Exception as e:
+        logger.error(f"Error generating calendar view: {e}", exc_info=True)
+        send_message("Sorry, I had trouble generating the calendar view. Please try again.", chat_id)
 
 
 def _format_event_line(ev: dict) -> str:

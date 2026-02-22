@@ -19,8 +19,8 @@ import pytz
 import functions_framework
 
 from config import CALENDAR_TIMEZONE, DAILY_BRIEFING_ENABLED
-from calendar_service import get_daily_schedule
-from image_generator import generate_daily_briefing_image
+from calendar_service import get_daily_schedule, get_weekly_schedule
+from image_generator import generate_daily_briefing_image, generate_weekly_calendar_image
 from telegram_service import send_photo, send_message, format_daily_briefing
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,18 @@ def daily_briefing(request):
             message = format_daily_briefing(schedule)
             send_message(message)
             logger.info("Daily briefing sent as text (fallback)")
+
+        # Also send the weekly calendar view
+        try:
+            weekly = get_weekly_schedule(today)
+            weekly_image = generate_weekly_calendar_image(weekly)
+            send_photo(weekly_image, caption="This week at a glance:")
+            logger.info("Weekly calendar image sent successfully")
+        except Exception as week_error:
+            logger.warning(
+                f"Weekly calendar image failed: {week_error}",
+                exc_info=True,
+            )
 
         return "OK", 200
 

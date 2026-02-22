@@ -420,3 +420,67 @@ def get_daily_schedule(date: str) -> dict:
             result["personal"].append(simple_event)
 
     return result
+
+
+def get_weekly_schedule(start_date: str = None) -> list[dict]:
+    """
+    Get the Mon-Fri schedule for the current week, split by work vs personal.
+
+    Fetches all events in one API call per calendar, then groups by day.
+
+    Args:
+        start_date: Optional YYYY-MM-DD to anchor the week. If None, uses today.
+                    The function finds the Monday of that week.
+
+    Returns:
+        List of 5 daily schedule dicts (Mon-Fri), each with:
+        {"date": "YYYY-MM-DD", "work": [...], "personal": [...]}
+    """
+    if start_date:
+        anchor = datetime.strptime(start_date, "%Y-%m-%d")
+    else:
+        anchor = datetime.now()
+
+    # Find Monday of this week (weekday() returns 0=Mon, 6=Sun)
+    monday = anchor - timedelta(days=anchor.weekday())
+    friday = monday + timedelta(days=4)
+
+    monday_str = monday.strftime("%Y-%m-%d")
+    friday_str = friday.strftime("%Y-%m-%d")
+
+    # Single API call for the full range across both calendars
+    all_events = query_events(monday_str, friday_str, calendar="both")
+
+    # Build 5 empty day buckets
+    days = []
+    for i in range(5):
+        day_date = (monday + timedelta(days=i)).strftime("%Y-%m-%d")
+        days.append({"date": day_date, "work": [], "personal": []})
+
+    # Group events into the correct day bucket
+    for event in all_events:
+        start_str = event.get("start", {}).get("dateTime", "")
+        if not start_str:
+            continue
+
+        # Extract the date portion from ISO 8601 datetime
+        event_date = start_str[:10]
+
+        # Find the matching day bucket
+        for day in days:
+            if day["date"] == event_date:
+                simple_event = {
+                    "id": event.get("id"),
+                    "title": event.get("summary", "Untitled"),
+                    "start": start_str,
+                    "end": event.get("end", {}).get("dateTime", ""),
+                    "location": event.get("location"),
+                }
+
+                if event.get("_calendar") == "work":
+                    day["work"].append(simple_event)
+                else:
+                    day["personal"].append(simple_event)
+                break
+
+    return days
