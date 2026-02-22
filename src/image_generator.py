@@ -1,11 +1,13 @@
 """
-Image Generator -- creates visual calendar cards and weekly calendar views.
+Image Generator -- creates visual calendar cards and per-day calendar views.
 
 Uses Pillow to render images in-memory (BytesIO) as PNG bytes for Telegram.
 
-Two image types:
+Three image types:
 1. Daily briefing card (800px wide, list-style, dynamic height)
-2. Weekly calendar view (1400px wide, Google Calendar-like grid with time blocks)
+2. Single-day calendar view (800px wide, Google Calendar-like grid with
+   Personal/Work columns side-by-side). Crisp and clear on mobile.
+3. Weekly calendar views — simply 5 individual day images (Mon-Fri).
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ COLORS = {
 
 
 # ---------------------------------------------------------------------------
-# Layout constants (in pixels)
+# Layout constants for the daily briefing card (in pixels)
 # ---------------------------------------------------------------------------
 CARD_WIDTH = 800
 OUTER_PADDING = 24
@@ -91,22 +93,22 @@ def _load_fonts() -> dict:
         "title": ImageFont.truetype(regular_path, 16),
         "location": ImageFont.truetype(regular_path, 13),
         "empty": ImageFont.truetype(regular_path, 16),
-        # Weekly calendar view fonts
-        "week_header": ImageFont.truetype(bold_path, 22),
-        "day_name": ImageFont.truetype(bold_path, 14),
-        "day_date": ImageFont.truetype(regular_path, 12),
-        "sub_label": ImageFont.truetype(bold_path, 9),
-        "grid_hour": ImageFont.truetype(regular_path, 11),
-        "event_title_sm": ImageFont.truetype(bold_path, 10),
-        "event_time_sm": ImageFont.truetype(regular_path, 9),
+        # Per-day calendar view fonts (larger, since each day has its own image)
+        "day_header": ImageFont.truetype(bold_path, 26),
+        "col_label": ImageFont.truetype(bold_path, 16),
+        "grid_hour": ImageFont.truetype(regular_path, 13),
+        "event_title": ImageFont.truetype(bold_path, 13),
+        "event_time": ImageFont.truetype(regular_path, 12),
+        "legend": ImageFont.truetype(regular_path, 13),
+        "empty_day": ImageFont.truetype(regular_path, 15),
     }
     logger.info("Fonts loaded successfully")
     return _fonts
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# 1. DAILY BRIEFING CARD (list-style, same as before)
+# ===========================================================================
 
 def generate_daily_briefing_image(schedule: dict) -> bytes:
     """
@@ -213,7 +215,7 @@ def _calculate_height(sections: list[dict], fonts: dict) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Drawing helpers
+# Drawing helpers (briefing card)
 # ---------------------------------------------------------------------------
 
 def _draw_header(draw: ImageDraw, date_str: str, fonts: dict,
@@ -380,132 +382,135 @@ def _format_event_time(event: dict) -> str:
 
 
 # ===========================================================================
-# Weekly Calendar View (Google Calendar-like grid)
+# 2. SINGLE-DAY CALENDAR VIEW (one crisp image per day)
+# ===========================================================================
+#
+# Each day gets its own 800px-wide image with:
+#   - Blue header showing the day name and date
+#   - Two side-by-side columns: Personal (orange) | Work (teal)
+#   - Time grid from 07:00 to 22:00
+#   - Event blocks proportional to their duration
+#
+# This replaces the old cramped weekly grid that was blurry on Telegram.
 # ===========================================================================
 
-# Layout constants for the weekly view
-WEEK_WIDTH = 1400
-WEEK_OUTER_PAD = 16
-WEEK_HEADER_HEIGHT = 56
-WEEK_DAY_HEADER_HEIGHT = 48
-WEEK_TIME_GUTTER = 56          # Width of the time labels column on the left
-WEEK_HOUR_HEIGHT = 50          # Pixels per hour row
-WEEK_START_HOUR = 7            # Grid starts at 07:00
-WEEK_END_HOUR = 22             # Grid ends at 22:00 (15 hours visible)
-WEEK_COL_GAP = 4               # Gap between day columns
-WEEK_SUB_GAP = 3               # Gap between personal and work sub-columns
-WEEK_EVENT_PAD = 3             # Padding inside event blocks
-WEEK_EVENT_RADIUS = 4          # Rounded corner radius for event blocks
-WEEK_MIN_EVENT_H = 22          # Minimum event block height (for very short events)
+# Layout constants for the per-day view
+DAY_VIEW_WIDTH = 800
+DAY_VIEW_OUTER_PAD = 16
+DAY_VIEW_HEADER_H = 64
+DAY_VIEW_COL_HEADER_H = 36
+DAY_VIEW_TIME_GUTTER = 60     # Width for the time labels on the left
+DAY_VIEW_HOUR_HEIGHT = 56     # Pixels per hour — taller than old weekly view
+DAY_VIEW_START_HOUR = 7
+DAY_VIEW_END_HOUR = 22
+DAY_VIEW_COL_GAP = 8          # Gap between Personal and Work columns
+DAY_VIEW_EVENT_PAD = 5
+DAY_VIEW_EVENT_RADIUS = 6
+DAY_VIEW_MIN_EVENT_H = 26
 
 # Derived
-WEEK_GRID_HOURS = WEEK_END_HOUR - WEEK_START_HOUR
-WEEK_GRID_HEIGHT = WEEK_GRID_HOURS * WEEK_HOUR_HEIGHT
-WEEK_TOTAL_HEIGHT = (
-    WEEK_OUTER_PAD + WEEK_HEADER_HEIGHT + WEEK_DAY_HEADER_HEIGHT
-    + WEEK_GRID_HEIGHT + WEEK_OUTER_PAD
+DAY_VIEW_GRID_HOURS = DAY_VIEW_END_HOUR - DAY_VIEW_START_HOUR
+DAY_VIEW_GRID_HEIGHT = DAY_VIEW_GRID_HOURS * DAY_VIEW_HOUR_HEIGHT
+DAY_VIEW_TOTAL_HEIGHT = (
+    DAY_VIEW_OUTER_PAD
+    + DAY_VIEW_HEADER_H
+    + DAY_VIEW_COL_HEADER_H
+    + DAY_VIEW_GRID_HEIGHT
+    + DAY_VIEW_OUTER_PAD
 )
 
-# Colors specific to the weekly view
-WEEK_COLORS = {
+# Colors specific to the day view
+DAY_VIEW_COLORS = {
     "grid_line": "#ECECEC",
     "grid_line_dark": "#DCDCDC",
-    "today_bg": "#EEF4FF",       # Light blue highlight for today's column
-    "work_block": "#2B8A8A",     # Teal event block
-    "work_block_light": "#D6F0F0",
-    "personal_block": "#E8734A", # Orange event block
-    "personal_block_light": "#FDEADF",
+    "today_bg": "#EEF4FF",       # Light blue tint for today
+    "work_block": "#2B8A8A",
+    "personal_block": "#E8734A",
     "event_text": "#FFFFFF",
 }
 
 
-def generate_weekly_calendar_image(weekly_schedule: list[dict]) -> bytes:
+def generate_single_day_calendar_image(schedule: dict) -> bytes:
     """
-    Generate a Google Calendar-like week view image.
+    Generate a Google Calendar-like grid image for ONE day.
+
+    Two side-by-side columns — Personal (left, orange) and Work (right, teal) —
+    with a 07:00-22:00 time grid and proportionally positioned event blocks.
 
     Args:
-        weekly_schedule: List of 5 daily schedule dicts (Mon-Fri) from
-                         calendar_service.get_weekly_schedule(). Each dict has:
-                         {"date": "YYYY-MM-DD", "work": [...], "personal": [...]}
+        schedule: Dict with 'date', 'work', 'personal' (same shape as
+                  calendar_service.get_daily_schedule()).
 
     Returns:
-        PNG image as bytes, ready for Telegram sendPhoto
+        PNG image as bytes, ready for Telegram sendPhoto.
     """
     fonts = _load_fonts()
 
-    img = Image.new("RGB", (WEEK_WIDTH, WEEK_TOTAL_HEIGHT), COLORS["bg_outer"])
+    img = Image.new("RGB", (DAY_VIEW_WIDTH, DAY_VIEW_TOTAL_HEIGHT), COLORS["bg_outer"])
     draw = ImageDraw.Draw(img)
 
     # Card background
-    card_x0 = WEEK_OUTER_PAD
-    card_y0 = WEEK_OUTER_PAD
-    card_x1 = WEEK_WIDTH - WEEK_OUTER_PAD
-    card_y1 = WEEK_TOTAL_HEIGHT - WEEK_OUTER_PAD
-    draw.rounded_rectangle(
-        [card_x0, card_y0, card_x1, card_y1],
-        radius=12,
-        fill=COLORS["bg_card"],
-    )
+    cx0 = DAY_VIEW_OUTER_PAD
+    cy0 = DAY_VIEW_OUTER_PAD
+    cx1 = DAY_VIEW_WIDTH - DAY_VIEW_OUTER_PAD
+    cy1 = DAY_VIEW_TOTAL_HEIGHT - DAY_VIEW_OUTER_PAD
+    draw.rounded_rectangle([cx0, cy0, cx1, cy1], radius=12, fill=COLORS["bg_card"])
 
     # Calculate column geometry
-    usable_width = (card_x1 - card_x0) - WEEK_TIME_GUTTER
-    day_col_width = (usable_width - WEEK_COL_GAP * 4) // 5
-    grid_x_start = card_x0 + WEEK_TIME_GUTTER
-    grid_y_start = card_y0 + WEEK_HEADER_HEIGHT + WEEK_DAY_HEADER_HEIGHT
+    grid_x_start = cx0 + DAY_VIEW_TIME_GUTTER
+    usable_width = (cx1 - grid_x_start) - DAY_VIEW_COL_GAP
+    col_w = usable_width // 2
+    grid_y_start = cy0 + DAY_VIEW_HEADER_H + DAY_VIEW_COL_HEADER_H
 
-    # 1. Draw header
-    _week_draw_header(draw, weekly_schedule, fonts, card_x0, card_y0, card_x1)
-
-    # 2. Draw day column headers
+    # Check if this is today
     today_str = datetime.now().strftime("%Y-%m-%d")
-    for i, day in enumerate(weekly_schedule):
-        col_x = grid_x_start + i * (day_col_width + WEEK_COL_GAP)
-        is_today = (day["date"] == today_str)
+    is_today = (schedule.get("date", "") == today_str)
 
-        # Highlight today's column
-        if is_today:
-            draw.rectangle(
-                [col_x, grid_y_start, col_x + day_col_width, card_y1],
-                fill=WEEK_COLORS["today_bg"],
-            )
+    # Optional light blue background tint for today
+    if is_today:
+        draw.rectangle(
+            [grid_x_start, grid_y_start, cx1, cy1],
+            fill=DAY_VIEW_COLORS["today_bg"],
+        )
 
-        _week_draw_day_header(draw, day["date"], is_today, fonts,
-                              col_x, card_y0 + WEEK_HEADER_HEIGHT,
-                              day_col_width)
+    # 1. Draw the header
+    _dayview_draw_header(draw, schedule["date"], is_today, fonts, cx0, cy0, cx1)
 
-    # 3. Draw time gutter and grid lines
-    _week_draw_grid(draw, fonts, card_x0, grid_x_start, grid_y_start,
-                    card_x1, day_col_width, len(weekly_schedule))
+    # 2. Draw column sub-headers (Personal | Work)
+    _dayview_draw_col_headers(draw, fonts, grid_x_start, cy0 + DAY_VIEW_HEADER_H,
+                              col_w, DAY_VIEW_COL_GAP)
 
-    # 4. Draw events for each day
-    for i, day in enumerate(weekly_schedule):
-        col_x = grid_x_start + i * (day_col_width + WEEK_COL_GAP)
-        sub_w = (day_col_width - WEEK_SUB_GAP) // 2
+    # 3. Draw the time grid (hour labels + lines)
+    _dayview_draw_grid(draw, fonts, cx0, grid_x_start, grid_y_start, cx1)
 
-        # Personal events in left sub-column
-        for event in day.get("personal", []):
-            _week_draw_event_block(
-                draw, event, fonts,
-                x=col_x,
-                width=sub_w,
-                grid_y_start=grid_y_start,
-                color=WEEK_COLORS["personal_block"],
-                light_color=WEEK_COLORS["personal_block_light"],
-            )
+    # 4. Draw events — Personal in left column, Work in right column
+    personal_x = grid_x_start
+    work_x = grid_x_start + col_w + DAY_VIEW_COL_GAP
 
-        # Work events in right sub-column
-        for event in day.get("work", []):
-            _week_draw_event_block(
-                draw, event, fonts,
-                x=col_x + sub_w + WEEK_SUB_GAP,
-                width=sub_w,
-                grid_y_start=grid_y_start,
-                color=WEEK_COLORS["work_block"],
-                light_color=WEEK_COLORS["work_block_light"],
-            )
+    for event in schedule.get("personal", []):
+        _dayview_draw_event_block(
+            draw, event, fonts,
+            x=personal_x, width=col_w,
+            grid_y_start=grid_y_start,
+            color=DAY_VIEW_COLORS["personal_block"],
+        )
 
-    # 5. Draw legend at bottom-right of header
-    _week_draw_legend(draw, fonts, card_x1, card_y0)
+    for event in schedule.get("work", []):
+        _dayview_draw_event_block(
+            draw, event, fonts,
+            x=work_x, width=col_w,
+            grid_y_start=grid_y_start,
+            color=DAY_VIEW_COLORS["work_block"],
+        )
+
+    # 5. If no events at all, draw a friendly message in the grid area
+    if not schedule.get("personal") and not schedule.get("work"):
+        msg = "Nothing scheduled"
+        bbox = draw.textbbox((0, 0), msg, font=fonts["empty_day"])
+        msg_w = bbox[2] - bbox[0]
+        msg_x = grid_x_start + (cx1 - grid_x_start - msg_w) // 2
+        msg_y = grid_y_start + DAY_VIEW_GRID_HEIGHT // 2 - 10
+        draw.text((msg_x, msg_y), msg, fill=COLORS["empty_text"], font=fonts["empty_day"])
 
     # Export
     buffer = io.BytesIO()
@@ -513,236 +518,263 @@ def generate_weekly_calendar_image(weekly_schedule: list[dict]) -> bytes:
     buffer.seek(0)
 
     size_kb = len(buffer.getvalue()) / 1024
-    logger.info(f"Generated weekly calendar: {WEEK_WIDTH}x{WEEK_TOTAL_HEIGHT}px, {size_kb:.0f}KB")
+    logger.info(
+        f"Generated day-view image for {schedule.get('date')}: "
+        f"{DAY_VIEW_WIDTH}x{DAY_VIEW_TOTAL_HEIGHT}px, {size_kb:.0f}KB"
+    )
     return buffer.getvalue()
 
 
-def _week_draw_header(draw: ImageDraw, schedule: list[dict], fonts: dict,
-                      card_x0: int, card_y0: int, card_x1: int):
-    """Draw the blue week title header."""
-    header_y0 = card_y0
-    header_y1 = card_y0 + WEEK_HEADER_HEIGHT
+def generate_weekly_calendar_images(weekly_schedule: list[dict]) -> list[bytes]:
+    """
+    Generate one calendar image per day for the work week (Mon-Fri).
 
-    # Blue header band (rounded top, flat bottom)
+    This replaces the old single-image weekly view that was blurry when
+    Telegram compressed it. Now each day gets a crisp 800px image.
+
+    Args:
+        weekly_schedule: List of 5 daily schedule dicts (Mon-Fri) from
+                         calendar_service.get_weekly_schedule().
+
+    Returns:
+        List of 5 PNG images as bytes (one per day).
+    """
+    images = []
+    for day_schedule in weekly_schedule:
+        img_bytes = generate_single_day_calendar_image(day_schedule)
+        images.append(img_bytes)
+    return images
+
+
+# ---------------------------------------------------------------------------
+# Day-view drawing helpers
+# ---------------------------------------------------------------------------
+
+def _dayview_draw_header(draw: ImageDraw, date_str: str, is_today: bool,
+                         fonts: dict, cx0: int, cy0: int, cx1: int):
+    """Draw the blue header bar with day name and full date."""
+    h_y0 = cy0
+    h_y1 = cy0 + DAY_VIEW_HEADER_H
+
+    # Blue band — rounded top, flat bottom
     draw.rounded_rectangle(
-        [card_x0, header_y0, card_x1, header_y1 + 12],
+        [cx0, h_y0, cx1, h_y1 + 12],
         radius=12,
         fill=COLORS["header_bg"],
     )
     draw.rectangle(
-        [card_x0, header_y1, card_x1, header_y1 + 12],
+        [cx0, h_y1, cx1, h_y1 + 12],
         fill=COLORS["header_bg"],
     )
 
-    # "Week of 24 - 28 February 2026"
-    if schedule:
-        try:
-            mon = datetime.strptime(schedule[0]["date"], "%Y-%m-%d")
-            fri = datetime.strptime(schedule[-1]["date"], "%Y-%m-%d")
-            if mon.month == fri.month:
-                title = f"Week of {mon.day} - {fri.day} {fri.strftime('%B %Y')}"
-            else:
-                title = f"Week of {mon.strftime('%d %b')} - {fri.strftime('%d %b %Y')}"
-        except (ValueError, IndexError):
-            title = "This Week"
-    else:
-        title = "This Week"
-
-    bbox = draw.textbbox((0, 0), title, font=fonts["week_header"])
-    text_h = bbox[3] - bbox[1]
-    text_y = header_y0 + (WEEK_HEADER_HEIGHT - text_h) // 2
-
-    draw.text(
-        (card_x0 + 24, text_y),
-        title,
-        fill=COLORS["header_text"],
-        font=fonts["week_header"],
-    )
-
-
-def _week_draw_day_header(draw: ImageDraw, date_str: str, is_today: bool,
-                          fonts: dict, col_x: int, y: int, col_w: int):
-    """Draw a single day column header (day name + date + P/W labels)."""
+    # Format: "Monday, 23 February 2026"
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d")
-        day_name = dt.strftime("%a")   # "Mon"
-        day_date = dt.strftime("%d")   # "24"
+        formatted = dt.strftime("%A, %d %B %Y")
     except (ValueError, TypeError):
-        day_name = "?"
-        day_date = "?"
+        formatted = date_str or "Today"
 
-    # Day name (bold, centred)
-    name_color = COLORS["header_bg"] if is_today else COLORS["text_dark"]
-    bbox = draw.textbbox((0, 0), day_name, font=fonts["day_name"])
-    name_w = bbox[2] - bbox[0]
+    # Add "(Today)" badge if applicable
+    if is_today:
+        formatted += "  (Today)"
+
+    bbox = draw.textbbox((0, 0), formatted, font=fonts["day_header"])
+    text_h = bbox[3] - bbox[1]
+    text_y = h_y0 + (DAY_VIEW_HEADER_H - text_h) // 2
+
     draw.text(
-        (col_x + (col_w - name_w) // 2, y + 4),
-        day_name,
-        fill=name_color,
-        font=fonts["day_name"],
+        (cx0 + 24, text_y),
+        formatted,
+        fill=COLORS["header_text"],
+        font=fonts["day_header"],
     )
 
-    # Date number
-    bbox = draw.textbbox((0, 0), day_date, font=fonts["day_date"])
-    date_w = bbox[2] - bbox[0]
-    draw.text(
-        (col_x + (col_w - date_w) // 2, y + 20),
-        day_date,
-        fill=name_color,
-        font=fonts["day_date"],
-    )
+    # Legend dots in the header (right side)
+    legend_y = h_y0 + (DAY_VIEW_HEADER_H) // 2 - 6
 
-    # P / W sub-column labels
-    sub_w = (col_w - WEEK_SUB_GAP) // 2
+    # Personal dot + label
+    px = cx1 - 200
+    draw.ellipse([px, legend_y + 1, px + 12, legend_y + 13], fill=COLORS["personal_accent"])
+    draw.text((px + 16, legend_y), "Personal", fill=COLORS["header_text"], font=fonts["legend"])
+
+    # Work dot + label
+    wx = cx1 - 95
+    draw.ellipse([wx, legend_y + 1, wx + 12, legend_y + 13], fill=DAY_VIEW_COLORS["work_block"])
+    draw.text((wx + 16, legend_y), "Work", fill=COLORS["header_text"], font=fonts["legend"])
+
+
+def _dayview_draw_col_headers(draw: ImageDraw, fonts: dict,
+                               grid_x_start: int, y: int,
+                               col_w: int, gap: int):
+    """Draw the 'Personal' and 'Work' column labels above the grid."""
+    # Personal label — centred in left column
+    p_label = "Personal"
+    bbox = draw.textbbox((0, 0), p_label, font=fonts["col_label"])
+    p_w = bbox[2] - bbox[0]
     draw.text(
-        (col_x + sub_w // 2 - 3, y + 36),
-        "P",
+        (grid_x_start + (col_w - p_w) // 2, y + 10),
+        p_label,
         fill=COLORS["personal_accent"],
-        font=fonts["sub_label"],
+        font=fonts["col_label"],
     )
+
+    # Work label — centred in right column
+    w_label = "Work"
+    bbox = draw.textbbox((0, 0), w_label, font=fonts["col_label"])
+    w_w = bbox[2] - bbox[0]
+    work_x = grid_x_start + col_w + gap
     draw.text(
-        (col_x + sub_w + WEEK_SUB_GAP + sub_w // 2 - 3, y + 36),
-        "W",
-        fill=WEEK_COLORS["work_block"],
-        font=fonts["sub_label"],
+        (work_x + (col_w - w_w) // 2, y + 10),
+        w_label,
+        fill=DAY_VIEW_COLORS["work_block"],
+        font=fonts["col_label"],
+    )
+
+    # Divider line under column labels
+    div_y = y + DAY_VIEW_COL_HEADER_H - 1
+    draw.line(
+        [(grid_x_start, div_y), (grid_x_start + col_w * 2 + gap, div_y)],
+        fill=DAY_VIEW_COLORS["grid_line_dark"],
+        width=1,
     )
 
 
-def _week_draw_grid(draw: ImageDraw, fonts: dict, card_x0: int,
-                    grid_x_start: int, grid_y_start: int, card_x1: int,
-                    day_col_width: int, num_days: int):
-    """Draw the time gutter labels, horizontal hour lines, and vertical day separators."""
-    # Horizontal hour lines and time labels
-    for h in range(WEEK_GRID_HOURS + 1):
-        y = grid_y_start + h * WEEK_HOUR_HEIGHT
-        hour = WEEK_START_HOUR + h
+def _dayview_draw_grid(draw: ImageDraw, fonts: dict, cx0: int,
+                       grid_x_start: int, grid_y_start: int, cx1: int):
+    """Draw hour labels in the gutter and horizontal grid lines."""
+    for h in range(DAY_VIEW_GRID_HOURS + 1):
+        y = grid_y_start + h * DAY_VIEW_HOUR_HEIGHT
+        hour = DAY_VIEW_START_HOUR + h
 
-        # Hour label in the gutter
-        if hour <= WEEK_END_HOUR:
+        # Hour label
+        if hour <= DAY_VIEW_END_HOUR:
             label = f"{hour:02d}:00"
             draw.text(
-                (card_x0 + 8, y - 6),
+                (cx0 + 8, y - 7),
                 label,
                 fill=COLORS["text_time"],
                 font=fonts["grid_hour"],
             )
 
-        # Horizontal line across all columns
-        line_color = WEEK_COLORS["grid_line_dark"] if h == 0 else WEEK_COLORS["grid_line"]
+        # Horizontal line
+        line_color = DAY_VIEW_COLORS["grid_line_dark"] if h == 0 else DAY_VIEW_COLORS["grid_line"]
         draw.line(
-            [(grid_x_start, y), (card_x1 - WEEK_OUTER_PAD, y)],
+            [(grid_x_start, y), (cx1 - DAY_VIEW_OUTER_PAD, y)],
             fill=line_color,
             width=1,
         )
 
-    # Vertical separators between day columns
-    for i in range(1, num_days):
-        x = grid_x_start + i * (day_col_width + WEEK_COL_GAP) - WEEK_COL_GAP // 2
-        draw.line(
-            [(x, grid_y_start), (x, grid_y_start + WEEK_GRID_HEIGHT)],
-            fill=WEEK_COLORS["grid_line"],
-            width=1,
-        )
+    # Vertical separator between Personal and Work columns
+    usable_width = (cx1 - grid_x_start) - DAY_VIEW_COL_GAP
+    col_w = usable_width // 2
+    sep_x = grid_x_start + col_w + DAY_VIEW_COL_GAP // 2
+    draw.line(
+        [(sep_x, grid_y_start), (sep_x, grid_y_start + DAY_VIEW_GRID_HEIGHT)],
+        fill=DAY_VIEW_COLORS["grid_line_dark"],
+        width=1,
+    )
 
 
-def _week_draw_event_block(draw: ImageDraw, event: dict, fonts: dict,
-                           x: int, width: int, grid_y_start: int,
-                           color: str, light_color: str):
+def _dayview_draw_event_block(draw: ImageDraw, event: dict, fonts: dict,
+                               x: int, width: int, grid_y_start: int,
+                               color: str):
     """
     Draw a single event as a colored block on the grid.
 
-    The block's vertical position and height are proportional to the
-    event's start/end times, like Google Calendar.
+    Vertical position and height are proportional to the event's
+    start/end times, like Google Calendar.
     """
     start_str = event.get("start", "")
     end_str = event.get("end", "")
 
     if not start_str or "T" not in start_str:
-        return  # Skip all-day events for now
+        # All-day event — draw a thin bar at the top of the grid
+        y0 = grid_y_start + 2
+        y1 = y0 + DAY_VIEW_MIN_EVENT_H
+        draw.rounded_rectangle(
+            [x + 2, y0, x + width - 2, y1],
+            radius=DAY_VIEW_EVENT_RADIUS,
+            fill=color,
+        )
+        title = event.get("title", "All day")
+        if len(title) > 30:
+            title = title[:29] + "..."
+        draw.text(
+            (x + DAY_VIEW_EVENT_PAD + 3, y0 + 4),
+            title,
+            fill=DAY_VIEW_COLORS["event_text"],
+            font=fonts["event_title"],
+        )
+        return
 
-    # Parse hours and minutes
+    # Parse start/end hours and minutes
     try:
-        start_hour, start_min = int(start_str[11:13]), int(start_str[14:16])
+        start_hour = int(start_str[11:13])
+        start_min = int(start_str[14:16])
         if end_str and "T" in end_str:
-            end_hour, end_min = int(end_str[11:13]), int(end_str[14:16])
+            end_hour = int(end_str[11:13])
+            end_min = int(end_str[14:16])
         else:
-            end_hour, end_min = start_hour + 1, start_min
+            # Default to 1-hour event
+            end_hour = start_hour + 1
+            end_min = start_min
     except (ValueError, IndexError):
         return
 
-    # Clamp to grid boundaries
-    start_hour_f = max(start_hour + start_min / 60, WEEK_START_HOUR)
-    end_hour_f = min(end_hour + end_min / 60, WEEK_END_HOUR)
+    # Clamp to the visible grid range
+    start_f = max(start_hour + start_min / 60.0, DAY_VIEW_START_HOUR)
+    end_f = min(end_hour + end_min / 60.0, DAY_VIEW_END_HOUR)
 
-    if end_hour_f <= start_hour_f:
-        return  # Event is fully outside the visible grid
+    if end_f <= start_f:
+        return  # Entirely outside the visible grid
 
-    # Calculate Y coordinates
-    y_start = grid_y_start + int((start_hour_f - WEEK_START_HOUR) * WEEK_HOUR_HEIGHT)
-    y_end = grid_y_start + int((end_hour_f - WEEK_START_HOUR) * WEEK_HOUR_HEIGHT)
+    # Calculate pixel positions
+    y_start = grid_y_start + int((start_f - DAY_VIEW_START_HOUR) * DAY_VIEW_HOUR_HEIGHT)
+    y_end = grid_y_start + int((end_f - DAY_VIEW_START_HOUR) * DAY_VIEW_HOUR_HEIGHT)
 
-    # Enforce minimum height
-    if (y_end - y_start) < WEEK_MIN_EVENT_H:
-        y_end = y_start + WEEK_MIN_EVENT_H
+    if (y_end - y_start) < DAY_VIEW_MIN_EVENT_H:
+        y_end = y_start + DAY_VIEW_MIN_EVENT_H
 
-    # Draw the event block — solid color with slight rounding
+    # Draw the block
     draw.rounded_rectangle(
-        [x + 1, y_start + 1, x + width - 1, y_end - 1],
-        radius=WEEK_EVENT_RADIUS,
+        [x + 2, y_start + 1, x + width - 2, y_end - 1],
+        radius=DAY_VIEW_EVENT_RADIUS,
         fill=color,
     )
 
-    # Draw event title inside the block (white text)
+    # Event title (white on colored background)
     title = event.get("title", "Untitled")
-    max_chars = max(width // 7, 5)  # Rough estimate of chars that fit
+    max_chars = max(width // 8, 8)
     if len(title) > max_chars:
-        title = title[:max_chars - 1] + "…"
+        title = title[:max_chars - 1] + "..."
 
     draw.text(
-        (x + WEEK_EVENT_PAD + 2, y_start + WEEK_EVENT_PAD + 1),
+        (x + DAY_VIEW_EVENT_PAD + 3, y_start + DAY_VIEW_EVENT_PAD),
         title,
-        fill=WEEK_COLORS["event_text"],
-        font=fonts["event_title_sm"],
+        fill=DAY_VIEW_COLORS["event_text"],
+        font=fonts["event_title"],
     )
 
-    # If the block is tall enough, show the time below the title
-    block_height = y_end - y_start
-    if block_height >= 38:
-        time_label = f"{start_hour:02d}:{start_min:02d}"
+    # If block is tall enough, show the time range below the title
+    block_h = y_end - y_start
+    if block_h >= 44:
+        time_label = f"{start_hour:02d}:{start_min:02d} - {end_hour:02d}:{end_min:02d}"
         draw.text(
-            (x + WEEK_EVENT_PAD + 2, y_start + WEEK_EVENT_PAD + 14),
+            (x + DAY_VIEW_EVENT_PAD + 3, y_start + DAY_VIEW_EVENT_PAD + 18),
             time_label,
-            fill=WEEK_COLORS["event_text"],
-            font=fonts["event_time_sm"],
+            fill=DAY_VIEW_COLORS["event_text"],
+            font=fonts["event_time"],
         )
 
-
-def _week_draw_legend(draw: ImageDraw, fonts: dict, card_x1: int, card_y0: int):
-    """Draw a small legend in the header area (Personal / Work indicators)."""
-    y = card_y0 + 20
-    x = card_x1 - 200
-
-    # Personal dot + label
-    draw.ellipse(
-        [x, y + 2, x + 10, y + 12],
-        fill=COLORS["personal_accent"],
-    )
-    draw.text(
-        (x + 14, y),
-        "Personal",
-        fill=COLORS["header_text"],
-        font=fonts["day_date"],
-    )
-
-    # Work dot + label
-    x += 80
-    draw.ellipse(
-        [x, y + 2, x + 10, y + 12],
-        fill=WEEK_COLORS["work_block"],
-    )
-    draw.text(
-        (x + 14, y),
-        "Work",
-        fill=COLORS["header_text"],
-        font=fonts["day_date"],
-    )
+    # If block is tall enough, show location too
+    location = event.get("location")
+    if location and block_h >= 62:
+        loc_text = location
+        if len(loc_text) > max_chars:
+            loc_text = loc_text[:max_chars - 1] + "..."
+        draw.text(
+            (x + DAY_VIEW_EVENT_PAD + 3, y_start + DAY_VIEW_EVENT_PAD + 34),
+            loc_text,
+            fill=DAY_VIEW_COLORS["event_text"],
+            font=fonts["event_time"],
+        )

@@ -33,7 +33,7 @@ from calendar_service import (
     check_conflicts,
     get_weekly_schedule,
 )
-from image_generator import generate_weekly_calendar_image
+from image_generator import generate_weekly_calendar_images
 from telegram_service import (
     send_message,
     send_photo,
@@ -320,14 +320,22 @@ def _handle_query_intent(parsed: dict, chat_id: str):
 
 def _handle_calendar_view(chat_id: str):
     """
-    Handle a 'calendar_view' intent — generate and send the weekly calendar image.
+    Handle a 'calendar_view' intent — generate and send 5 daily calendar images.
 
-    Fetches the current week (Mon-Fri) and renders a Google Calendar-like grid view.
+    Fetches the current week (Mon-Fri) and sends one crisp image per day.
+    Each image shows Personal (left) and Work (right) columns with a time grid.
     """
     try:
         weekly = get_weekly_schedule()
-        image_bytes = generate_weekly_calendar_image(weekly)
-        send_photo(image_bytes, caption="Here's your week at a glance:", chat_id=chat_id)
+        images = generate_weekly_calendar_images(weekly)
+
+        # Send each day as a separate photo for crisp quality
+        for i, img_bytes in enumerate(images):
+            caption = "Your week at a glance:" if i == 0 else None
+            send_photo(img_bytes, caption=caption, chat_id=chat_id)
+
+        logger.info(f"Sent {len(images)} daily calendar images")
+
     except Exception as e:
         logger.error(f"Error generating calendar view: {e}", exc_info=True)
         send_message("Sorry, I had trouble generating the calendar view. Please try again.", chat_id)
